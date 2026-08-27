@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Lock, Mail, ArrowRight, Store, Sparkles, ArrowLeft } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Store, Sparkles, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { authService } from '../services/authService';
+import { isSupabaseConfigured, isMockAuthEnabled } from '../lib/supabase';
 import { UserSession } from '../types';
 
 interface LoginProps {
@@ -44,12 +45,19 @@ export const Login: React.FC<LoginProps> = ({
   };
 
   const handleQuickDemoLogin = async () => {
+    if (!isMockAuthEnabled()) {
+      onShowToast('Mode mock demo dinonaktifkan di production. Harap atur kredensial Supabase.', 'error');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const { user } = await authService.signIn('owner@kedainusantara.com', 'password123');
+      const { user, error } = await authService.signIn('owner@kedainusantara.com', 'password123');
       if (user) {
         onShowToast('Login mode demo berhasil!', 'success');
         onSuccess(user);
+      } else {
+        onShowToast(error?.message || 'Login demo gagal', 'error');
       }
     } finally {
       setIsLoading(false);
@@ -82,9 +90,21 @@ export const Login: React.FC<LoginProps> = ({
               Login Admin UMKM
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              Masuk untuk mengelola produk, harga, dan pesanan
+              Masuk untuk mengelola produk, harga, dan profil toko
             </p>
           </div>
+
+          {!isSupabaseConfigured() && !isMockAuthEnabled() && (
+            <div className="mb-5 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-2.5 text-left text-amber-900 text-xs">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Konfigurasi Supabase Belum Terpasang</p>
+                <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                  Harap atur variabel <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">VITE_SUPABASE_URL</code> dan <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">VITE_SUPABASE_ANON_KEY</code> di pengaturan hosting (Vercel / .env).
+                </p>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -124,7 +144,7 @@ export const Login: React.FC<LoginProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 bg-rose-600 hover:bg-rose-700 active:scale-98 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+              className="w-full py-3 bg-rose-600 hover:bg-rose-700 active:scale-98 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer mt-2 disabled:opacity-50"
             >
               {isLoading ? (
                 <span>Memproses...</span>
@@ -137,27 +157,29 @@ export const Login: React.FC<LoginProps> = ({
             </button>
           </form>
 
-          {/* Quick Demo Login Option */}
-          <div className="mt-5 pt-4 border-t border-slate-100 text-center">
-            <button
-              type="button"
-              onClick={handleQuickDemoLogin}
-              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Sparkles className="w-4 h-4 text-amber-600" />
-              <span>Masuk Cepat Mode Demo (Kedai Nusantara)</span>
-            </button>
-
-            <div className="mt-4 text-xs text-slate-500">
-              Belum punya akun usaha?{' '}
+          {/* Quick Demo Login Option - ONLY shown if mock auth is explicitly enabled */}
+          {isMockAuthEnabled() && (
+            <div className="mt-5 pt-4 border-t border-slate-100 text-center">
               <button
                 type="button"
-                onClick={onNavigateToRegister}
-                className="font-bold text-rose-600 hover:text-rose-700 underline cursor-pointer"
+                onClick={handleQuickDemoLogin}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer"
               >
-                Daftar Sekarang
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                <span>Masuk Cepat Mode Demo (Sandbox)</span>
               </button>
             </div>
+          )}
+
+          <div className="mt-5 pt-4 border-t border-slate-100 text-center text-xs text-slate-500">
+            Belum punya akun usaha?{' '}
+            <button
+              type="button"
+              onClick={onNavigateToRegister}
+              className="font-bold text-rose-600 hover:text-rose-700 underline cursor-pointer"
+            >
+              Daftar Sekarang
+            </button>
           </div>
         </div>
       </div>

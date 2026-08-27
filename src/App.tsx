@@ -151,6 +151,15 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Admin Route Protection
+  useEffect(() => {
+    if (!isAuthChecking) {
+      if ((view === 'admin' || view === 'onboarding') && !currentUser) {
+        setView('login');
+      }
+    }
+  }, [view, currentUser, isAuthChecking]);
+
   // Reload data when view or currentUser changes
   useEffect(() => {
     if (!isAuthChecking) {

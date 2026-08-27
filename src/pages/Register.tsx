@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Lock, Mail, User, ArrowRight, Store, ArrowLeft } from 'lucide-react';
+import { Lock, Mail, User, ArrowRight, Store, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { authService } from '../services/authService';
+import { isSupabaseConfigured, isMockAuthEnabled } from '../lib/supabase';
 import { UserSession } from '../types';
 
 interface RegisterProps {
@@ -75,6 +76,18 @@ export const Register: React.FC<RegisterProps> = ({
               Buat website katalog produk sendiri dalam hitungan menit
             </p>
           </div>
+
+          {!isSupabaseConfigured() && !isMockAuthEnabled() && (
+            <div className="mb-5 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-2.5 text-left text-amber-900 text-xs">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Konfigurasi Supabase Belum Terpasang</p>
+                <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                  Harap atur variabel <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">VITE_SUPABASE_URL</code> dan <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">VITE_SUPABASE_ANON_KEY</code> di pengaturan hosting (Vercel / .env).
+                </p>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleRegister} className="space-y-4">
             <div>
