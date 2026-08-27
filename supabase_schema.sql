@@ -1,14 +1,15 @@
 -- =====================================================================
--- SUPABASE SCHEMA: Web Katalog UMKM Multi-Tenant + RLS Security
+-- SUPABASE SCHEMA: Web Katalog UMKM Multi-Tenant + Hardened RLS Security
 -- =====================================================================
 
 -- 1. Enable UUID Extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 2. Create Table: Businesses (Toko/Usaha)
+-- ONE AUTH USER = ONE BUSINESS (Enforced via UNIQUE constraint on owner_id)
 CREATE TABLE IF NOT EXISTS businesses (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  owner_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
   slug TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   tagline TEXT DEFAULT '',
@@ -45,8 +46,8 @@ CREATE TABLE IF NOT EXISTS products (
   category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   description TEXT DEFAULT '',
-  price BIGINT NOT NULL,
-  original_price BIGINT,
+  price BIGINT NOT NULL CHECK (price >= 0),
+  original_price BIGINT CHECK (original_price IS NULL OR original_price >= 0),
   image_url TEXT NOT NULL,
   available BOOLEAN NOT NULL DEFAULT TRUE,
   badge TEXT,
@@ -55,7 +56,7 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. Indexes for Fast Queries
+-- 5. Performance Indexes
 CREATE INDEX IF NOT EXISTS idx_businesses_slug ON businesses(slug);
 CREATE INDEX IF NOT EXISTS idx_businesses_owner_id ON businesses(owner_id);
 CREATE INDEX IF NOT EXISTS idx_categories_business_id ON categories(business_id);
@@ -74,22 +75,27 @@ ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 -- ---------------------------------------------------------------------
 -- POLICIES FOR 'businesses'
 -- ---------------------------------------------------------------------
--- Public Read: Siapapun dapat membaca profil bisnis untuk katalog publik
+-- Public Read: Anyone can read business profiles for the public catalog
+DROP POLICY IF EXISTS "Public read access for businesses" ON businesses;
 CREATE POLICY "Public read access for businesses" 
 ON businesses FOR SELECT 
 USING (true);
 
--- Owner Insert: Pemilik hanya bisa insert profil usaha mereka sendiri
+-- Owner Insert: Users can only create a business where owner_id matches their auth UID
+DROP POLICY IF EXISTS "Owners can insert their own business" ON businesses;
 CREATE POLICY "Owners can insert their own business" 
 ON businesses FOR INSERT 
 WITH CHECK (auth.uid() = owner_id);
 
--- Owner Update: Pemilik hanya bisa update usaha milik mereka
+-- Owner Update: Users can only update their own business profile
+DROP POLICY IF EXISTS "Owners can update their own business" ON businesses;
 CREATE POLICY "Owners can update their own business" 
 ON businesses FOR UPDATE 
-USING (auth.uid() = owner_id);
+USING (auth.uid() = owner_id)
+WITH CHECK (auth.uid() = owner_id);
 
--- Owner Delete: Pemilik hanya bisa hapus usaha mereka
+-- Owner Delete: Users can only delete their own business
+DROP POLICY IF EXISTS "Owners can delete their own business" ON businesses;
 CREATE POLICY "Owners can delete their own business" 
 ON businesses FOR DELETE 
 USING (auth.uid() = owner_id);
@@ -97,12 +103,14 @@ USING (auth.uid() = owner_id);
 -- ---------------------------------------------------------------------
 -- POLICIES FOR 'categories'
 -- ---------------------------------------------------------------------
--- Public Read: Siapapun dapat melihat kategori di katalog publik
+-- Public Read: Anyone can read categories on the public catalog
+DROP POLICY IF EXISTS "Public read access for categories" ON categories;
 CREATE POLICY "Public read access for categories" 
 ON categories FOR SELECT 
 USING (true);
 
--- Owner Insert: Hanya pemilik usaha yang bisa menambahkan kategori
+-- Owner Insert: Only the business owner can insert categories for their business
+DROP POLICY IF EXISTS "Owners can insert categories" ON categories;
 CREATE POLICY "Owners can insert categories" 
 ON categories FOR INSERT 
 WITH CHECK (
@@ -113,7 +121,8 @@ WITH CHECK (
   )
 );
 
--- Owner Update: Hanya pemilik usaha yang bisa mengubah kategori
+-- Owner Update: Only the business owner can update their categories
+DROP POLICY IF EXISTS "Owners can update categories" ON categories;
 CREATE POLICY "Owners can update categories" 
 ON categories FOR UPDATE 
 USING (
@@ -122,9 +131,17 @@ USING (
     WHERE businesses.id = categories.business_id 
     AND businesses.owner_id = auth.uid()
   )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM businesses 
+    WHERE businesses.id = categories.business_id 
+    AND businesses.owner_id = auth.uid()
+  )
 );
 
--- Owner Delete: Hanya pemilik usaha yang bisa menghapus kategori
+-- Owner Delete: Only the business owner can delete their categories
+DROP POLICY IF EXISTS "Owners can delete categories" ON categories;
 CREATE POLICY "Owners can delete categories" 
 ON categories FOR DELETE 
 USING (
@@ -138,12 +155,15 @@ USING (
 -- ---------------------------------------------------------------------
 -- POLICIES FOR 'products'
 -- ---------------------------------------------------------------------
--- Public Read: Siapapun dapat melihat daftar produk di katalog publik
+-- Public Read: Anyone can view products in the public catalog
+DROP POLICY IF EXISTS "Public read access for products" ON products;
 CREATE POLICY "Public read access for products" 
 ON products FOR SELECT 
 USING (true);
 
--- Owner Insert: Hanya pemilik usaha yang bisa menambahkan produk
+-- Owner Insert: Only the business owner can insert products for their business,
+-- AND if category_id is specified, it must belong to the exact same business
+DROP POLICY IF EXISTS "Owners can insert products" ON products;
 CREATE POLICY "Owners can insert products" 
 ON products FOR INSERT 
 WITH CHECK (
@@ -152,9 +172,18 @@ WITH CHECK (
     WHERE businesses.id = products.business_id 
     AND businesses.owner_id = auth.uid()
   )
+  AND (
+    products.category_id IS NULL OR EXISTS (
+      SELECT 1 FROM categories 
+      WHERE categories.id = products.category_id 
+      AND categories.business_id = products.business_id
+    )
+  )
 );
 
--- Owner Update: Hanya pemilik usaha yang bisa mengubah produk & stok
+-- Owner Update: Only the business owner can update their products,
+-- AND if category_id is changed, it must belong to the same business
+DROP POLICY IF EXISTS "Owners can update products" ON products;
 CREATE POLICY "Owners can update products" 
 ON products FOR UPDATE 
 USING (
@@ -163,9 +192,24 @@ USING (
     WHERE businesses.id = products.business_id 
     AND businesses.owner_id = auth.uid()
   )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM businesses 
+    WHERE businesses.id = products.business_id 
+    AND businesses.owner_id = auth.uid()
+  )
+  AND (
+    products.category_id IS NULL OR EXISTS (
+      SELECT 1 FROM categories 
+      WHERE categories.id = products.category_id 
+      AND categories.business_id = products.business_id
+    )
+  )
 );
 
--- Owner Delete: Hanya pemilik usaha yang bisa menghapus produk
+-- Owner Delete: Only the business owner can delete their products
+DROP POLICY IF EXISTS "Owners can delete products" ON products;
 CREATE POLICY "Owners can delete products" 
 ON products FOR DELETE 
 USING (
@@ -177,10 +221,62 @@ USING (
 );
 
 -- =====================================================================
--- STORAGE BUCKET: product-images
+-- STORAGE BUCKET: product-images & STORAGE RLS POLICIES
 -- =====================================================================
--- Jalankan di tab Storage Supabase:
--- 1. Buat bucket baru bernama 'product-images' (Set public = true)
--- 2. Tambahkan policy upload:
---    Allow authenticated users to INSERT objects into bucket 'product-images'
--- =====================================================================
+-- Insert bucket if not exists
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'product-images',
+  'product-images',
+  true,
+  3145728, -- 3MB in bytes
+  ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/jpg']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = true,
+  file_size_limit = 3145728,
+  allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+
+-- 1. Storage Public Read Policy
+DROP POLICY IF EXISTS "Public can view product images" ON storage.objects;
+CREATE POLICY "Public can view product images"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'product-images');
+
+-- 2. Storage Authenticated Owner Upload Policy
+-- Validates folder name matches user's owned business ID
+DROP POLICY IF EXISTS "Business owners can upload product images" ON storage.objects;
+CREATE POLICY "Business owners can upload product images"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'product-images'
+  AND (storage.foldername(name))[1] IN (
+    SELECT id::text FROM businesses WHERE owner_id = auth.uid()
+  )
+);
+
+-- 3. Storage Authenticated Owner Update Policy
+DROP POLICY IF EXISTS "Business owners can update product images" ON storage.objects;
+CREATE POLICY "Business owners can update product images"
+ON storage.objects FOR UPDATE
+TO authenticated
+USING (
+  bucket_id = 'product-images'
+  AND (storage.foldername(name))[1] IN (
+    SELECT id::text FROM businesses WHERE owner_id = auth.uid()
+  )
+);
+
+-- 4. Storage Authenticated Owner Delete Policy
+DROP POLICY IF EXISTS "Business owners can delete product images" ON storage.objects;
+CREATE POLICY "Business owners can delete product images"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (
+  bucket_id = 'product-images'
+  AND (storage.foldername(name))[1] IN (
+    SELECT id::text FROM businesses WHERE owner_id = auth.uid()
+  )
+);
+

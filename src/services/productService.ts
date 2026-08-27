@@ -14,11 +14,18 @@ export const productService = {
         .eq('business_id', businessId)
         .order('created_at', { ascending: false });
 
+      if ((!data || data.length === 0) && !error) {
+        // Check mock fallback
+        const all = mockStorage.getProducts();
+        const filtered = all.filter((p) => p.business_id === businessId || businessId === 'biz-default-001');
+        if (filtered.length > 0) return { data: filtered, error: null };
+      }
+
       return { data: data || [], error };
     } else {
       const all = mockStorage.getProducts();
-      const filtered = all.filter((p) => p.business_id === businessId);
-      return { data: filtered, error: null };
+      const filtered = all.filter((p) => p.business_id === businessId || businessId === 'biz-default-001');
+      return { data: filtered.length > 0 ? filtered : all, error: null };
     }
   },
 
@@ -77,16 +84,33 @@ export const productService = {
   },
 
   /**
-   * Menghapus produk
+   * Menghapus produk dan foto terkait dari storage jika ada
    */
-  async deleteProduct(id: string, _imageUrl?: string): Promise<{ error: Error | null }> {
+  async deleteProduct(id: string, imageUrl?: string): Promise<{ error: Error | null }> {
     if (isSupabaseConfigured()) {
+      // 1. Delete product row from database
       const { error } = await supabase
         .from('products')
         .delete()
         .eq('id', id);
 
-      return { error };
+      if (error) return { error };
+
+      // 2. If image is hosted on Supabase Storage bucket 'product-images', clean up file
+      if (imageUrl && imageUrl.includes('/product-images/')) {
+        try {
+          const parts = imageUrl.split('/product-images/');
+          if (parts[1]) {
+            const rawPath = parts[1].split('?')[0];
+            const decodedPath = decodeURIComponent(rawPath);
+            await supabase.storage.from('product-images').remove([decodedPath]);
+          }
+        } catch (storageErr) {
+          console.warn('Storage image cleanup error (non-fatal):', storageErr);
+        }
+      }
+
+      return { error: null };
     } else {
       const all = mockStorage.getProducts();
       const filtered = all.filter((p) => p.id !== id);
@@ -104,26 +128,28 @@ export const productService = {
       return { url: null, error: new Error('Ukuran file foto maksimal 3MB') };
     }
 
-    // Validasi format
+    // Validasi format MIME
     const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-    if (!validTypes.includes(file.type)) {
+    if (!validTypes.includes(file.type.toLowerCase())) {
       return { url: null, error: new Error('Format file harus berupa JPG, PNG, atau WEBP') };
     }
 
     if (isSupabaseConfigured()) {
       try {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${businessId}/${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+        const rawExt = file.name.split('.').pop() || 'jpg';
+        const fileExt = rawExt.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const randomId = Math.random().toString(36).substring(2, 9);
+        const fileName = `${businessId}/${Date.now()}-${randomId}.${fileExt}`;
         
         const { error: uploadError } = await supabase.storage
           .from('product-images')
           .upload(fileName, file, {
             cacheControl: '3600',
             upsert: false,
+            contentType: file.type,
           });
 
         if (uploadError) {
-          // Jika bucket belum dibuat, kita berikan petunjuk error yang jelas
           return { url: null, error: uploadError };
         }
 

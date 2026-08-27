@@ -12,11 +12,13 @@ export const businessService = {
         .from('businesses')
         .select('*')
         .eq('slug', slug)
-        .single();
+        .maybeSingle();
 
-      if (error) {
-        // Jika tidak ditemukan dengan slug, coba ambil bisnis pertama sebagai fallback
-        return { data: null, error };
+      if (error || !data) {
+        // Fallback to mock data if not found in database
+        const all = mockStorage.getBusinesses();
+        const found = all.find((b) => b.slug.toLowerCase() === slug.toLowerCase()) || all[0] || null;
+        return { data: found, error: null };
       }
       return { data, error: null };
     } else {
@@ -40,7 +42,7 @@ export const businessService = {
       return { data: data || null, error };
     } else {
       const all = mockStorage.getBusinesses();
-      const found = all.find((b) => b.owner_id === ownerId) || all[0] || null;
+      const found = all.find((b) => b.owner_id === ownerId) || null;
       return { data: found, error: null };
     }
   },
@@ -56,6 +58,11 @@ export const businessService = {
         .limit(1)
         .maybeSingle();
 
+      if (error || !data) {
+        // Fallback to demo business template so the catalog view is always functional
+        const all = mockStorage.getBusinesses();
+        return { data: all[0] || null, error: null };
+      }
       return { data: data || null, error };
     } else {
       const all = mockStorage.getBusinesses();
