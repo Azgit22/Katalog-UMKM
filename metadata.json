@@ -1,0 +1,6 @@
+{
+  "name": "Web Katalog UMKM + Admin Panel",
+  "description": "Platform Web Katalog UMKM Mobile-First dinamis dengan Admin Panel Self-Service, pengelolaan produk real-time, dan pemesanan via WhatsApp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
